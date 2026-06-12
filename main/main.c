@@ -77,6 +77,7 @@ static volatile bool alarma_activa = false;
 static volatile bool verde_activo  = true;
 static volatile bool rojo_activo  = false;
 static volatile bool sensor_cambio = false;
+static volatile bool flag_entrada_cliente = false;
 
 static volatile bool timers_cambio = false;
 
@@ -258,56 +259,9 @@ static void check_contadores_vacios(void)
 
 static void aplicar_nuevos_timers(void)
 {
-    ESP_LOGI(TAG, "Aplicando nuevos períodos a los temporizadores...");
-
-    // Verificar que los temporizadores estén inicializados
-    if (timer_cruce == NULL || timer_reinicio == NULL) {
-        ESP_LOGE(TAG, "❌ Los temporizadores no están inicializados.");
-        return;
-    }
-
-    // Detener los temporizadores antes de cambiar el período
-    if (xTimerIsTimerActive(timer_cruce)) {
-        ESP_LOGI(TAG, "El temporizador timer_cruce está activo. Deteniéndolo...");
-        xTimerStop(timer_cruce, 0); // Detener el temporizador
-    }
-    if (xTimerIsTimerActive(timer_reinicio)) {
-        ESP_LOGI(TAG, "El temporizador timer_reinicio está activo. Deteniéndolo...");
-        xTimerStop(timer_reinicio, 0); // Detener el temporizador
-    }
-
-    // Cambiar el período del temporizador de cruce
-    if (xTimerChangePeriod(timer_cruce, pdMS_TO_TICKS(config.tiempo_cruce_ms), 0) == pdPASS) {
-        ESP_LOGI(TAG, "✅ Período de timer_cruce cambiado a %d ms", config.tiempo_cruce_ms);
-    } else {
-        ESP_LOGE(TAG, "❌ Error al cambiar el período de timer_cruce");
-    }
-
-    // Cambiar el período del temporizador de reinicio
-    if (xTimerChangePeriod(timer_reinicio, pdMS_TO_TICKS(config.tiempo_reinicio_ms), 0) == pdPASS) {
-        ESP_LOGI(TAG, "✅ Período de timer_reinicio cambiado a %d ms", config.tiempo_reinicio_ms);
-    } else {
-        ESP_LOGE(TAG, "❌ Error al cambiar el período de timer_reinicio");
-    }
-
-    // Asegurarse de que los temporizadores estén detenidos
-    if (xTimerStop(timer_cruce, 0) == pdPASS) {
-        ESP_LOGI(TAG, "✅ Temporizador timer_cruce detenido.");
-    } else {
-        ESP_LOGE(TAG, "❌ Error al detener el temporizador timer_cruce.");
-    }
-
-    if (xTimerStop(timer_reinicio, 0) == pdPASS) {
-        ESP_LOGI(TAG, "✅ Temporizador timer_reinicio detenido.");
-    } else {
-        ESP_LOGE(TAG, "❌ Error al detener el temporizador timer_reinicio.");
-    }
-
     guardar_config();
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
-
-    ESP_LOGI(TAG, "✅ Los temporizadores han sido actualizados y están en estado STOP.");
 }
 
 // =====================================================================
@@ -423,24 +377,9 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
         {
             ESP_LOGI(TAG, ANSI_CYAN ">>> ENTRADA CLIENTE");
 
-            xTimerStop(timer_cruce,    0);
-            xTimerStop(timer_reinicio, 0);
-            xTimerStart(timer_cruce,    0);
-            xTimerStart(timer_reinicio, 0);
             contador_cliente++;
-
-            alarma_activa = true;
-            rojo_activo   = true;
-            verde_activo  = false;
-
-            set_alarma();
-            set_rojo();
-            set_verde();
-
-            vTaskDelay(pdMS_TO_TICKS(50));
-
+            flag_entrada_cliente = true;  // ← solo flag, nada más
             return;
-
         }
         else if (len == 3 && memcmp(data, "OUT", 3) == 0)
         {
@@ -515,7 +454,7 @@ static nimble_service_cfg_t services[] = {
 };
 
 static nimble_server_cfg_t server_cfg = {
-    .device_name          = "A11_LEDAC_SRV_01",
+    .device_name          = "A11_LEDAC_SRV_02",
     .services             = services,
     .num_services         = 2,
     .max_connections      = 5,          // 1 + 4
@@ -671,6 +610,17 @@ static void main_task(void* arg)
             resetear_sistema();
         }
 
+        if (flag_entrada_cliente) {
+            flag_entrada_cliente = false;
+            xTimerStop(timer_cruce, 0);
+            xTimerStop(timer_reinicio, 0);
+            xTimerStart(timer_cruce, 0);
+            xTimerStart(timer_reinicio, 0);
+            alarma_activa = true;
+            rojo_activo   = true;
+            verde_activo  = false;
+            set_alarma(); set_rojo(); set_verde();
+        }
         // ── Solo actuar si el cruce está disponible ───────────
         //ENTRADA
         if (paso_libre && hold_new_person)
@@ -815,14 +765,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    //cargar_config();
+    cargar_config();
 
     ESP_LOGI(TAG, "Iniciando server BLE con 2 servicios...");
     ESP_ERROR_CHECK(nimble_server_init(&server_cfg));
 
-    ESP_LOGI(TAG, "Panel inicializado correctamente");
-
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    vTaskDelay(pdMS_TO_TICKS(3000));
     config_sensor();
     
     output_gpio_init(ALARMA);
