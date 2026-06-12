@@ -1,0 +1,20 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "c:\\esp_552\\Espressif\\frameworks\\esp-idf-v5.5.2",
+  "idf.pythonInstallPath": "c:\\esp_552\\Espressif\\tools\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.openOcdConfigs": [
+    "board/esp32c6-ftdi.cfg"
+  ],
+  "idf.portWin": "COM15",
+  "idf.toolsPathWin": "c:\\esp_552\\Espressif\\tools",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c6"
+  },
+  "clangd.path": "c:\\esp_552\\Espressif\\tools\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\Users\\ICM 2\\Desktop\\ANDHY\\MT_SP_A11_ALARMA_LED_AC_SERVER\\build"
+  ],
+  "idf.flashType": "UART"
+}
