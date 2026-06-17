@@ -22,7 +22,7 @@
 #define TAG             "SP_SERVER"
 #define NVS_NAMESPACE   "config"
 
-#define ALARMA        GPIO_NUM_17
+#define ALARMA        GPIO_NUM_5
 #define ROJO          GPIO_NUM_1
 #define VERDE         GPIO_NUM_22
 
@@ -120,7 +120,7 @@ static Config config = {
 
     .tiempo_cruce_ms        = 12000,
     .tiempo_reinicio_ms     = 20000,
-    .state_alarma           = false,
+    .state_alarma           = true,
     .state_rojo             = true,
     .state_verde            = true,
 
@@ -454,7 +454,7 @@ static nimble_service_cfg_t services[] = {
 };
 
 static nimble_server_cfg_t server_cfg = {
-    .device_name          = "A11_LEDAC_SRV_02",
+    .device_name          = "A11_LEDAC_SRV_01",
     .services             = services,
     .num_services         = 2,
     .max_connections      = 5,          // 1 + 4
@@ -766,16 +766,15 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     cargar_config();
+    output_gpio_init(ALARMA);
+    output_gpio_init(VERDE);
+    output_gpio_init(ROJO);
 
     ESP_LOGI(TAG, "Iniciando server BLE con 2 servicios...");
     ESP_ERROR_CHECK(nimble_server_init(&server_cfg));
 
     vTaskDelay(pdMS_TO_TICKS(3000));
     config_sensor();
-    
-    output_gpio_init(ALARMA);
-    output_gpio_init(VERDE);
-    output_gpio_init(ROJO);
 
     set_alarma();
     set_verde();   // ← enciende verde porque verde_activo = true
