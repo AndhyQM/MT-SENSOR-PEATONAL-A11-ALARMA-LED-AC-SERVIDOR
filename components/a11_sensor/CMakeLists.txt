@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "a11_sensor.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        log
+        driver
+        esp_rom
+        freertos
+)
