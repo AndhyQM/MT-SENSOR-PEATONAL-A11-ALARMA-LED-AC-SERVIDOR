@@ -54,6 +54,7 @@
 #define ON          1
 #define OFF         0
 
+<<<<<<< HEAD
 // ── Tabla de clientes ─────────────────────────
 #define MAX_ESP_CLIENTS 4
 
@@ -67,6 +68,8 @@ static bool is_mine(uint16_t conn_handle) {
 }
 
 
+=======
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 static int contador_server = 0;
 static int contador_cliente = 0;
 
@@ -97,6 +100,10 @@ static volatile bool timers_cambio = false;
 static volatile bool flag_apply_config     = false;
 static volatile bool flag_send_config_esp  = false;
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 void config_sensor(void);
 void reiniciar_sensor(void);
 
@@ -130,7 +137,11 @@ typedef struct {
 // Valores por defecto
 static Config config = {
 
+<<<<<<< HEAD
     .tiempo_cruce_ms        = 1000,
+=======
+    .tiempo_cruce_ms        = 12000,
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     .tiempo_reinicio_ms     = 20000,
     .state_alarma           = true,
     .state_rojo             = true,
@@ -233,29 +244,61 @@ static void send_sensor_app(void)
 
 static inline void set_alarma(void)
 {
+<<<<<<< HEAD
     bool estado = alarma_activa && config.state_alarma;
     gpio_set_level(ALARMA, estado ? ON : OFF);
     ESP_LOGI(TAG, "🔔 ALARMA → %s", estado ? "ON" : "OFF");
+=======
+    if (alarma_activa && config.state_alarma) {
+        gpio_set_level(ALARMA, ON);
+    } else {
+        gpio_set_level(ALARMA, OFF);
+    }
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 }
 
 static inline void set_verde(void)
 {
+<<<<<<< HEAD
     bool estado = verde_activo && config.state_verde;
     gpio_set_level(VERDE, estado ? ON : OFF);
     ESP_LOGI(TAG, "🟢 VERDE  → %s", estado ? "ON" : "OFF");
+=======
+    if (verde_activo && config.state_verde) {
+        gpio_set_level(VERDE, ON);
+    } else {
+        gpio_set_level(VERDE, OFF);
+    }
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 }
 
 static inline void set_rojo(void)
 {
+<<<<<<< HEAD
     bool estado = rojo_activo && config.state_rojo;
     gpio_set_level(ROJO, estado ? ON : OFF);
     ESP_LOGI(TAG, "🔴 ROJO   → %s", estado ? "ON" : "OFF");
 }
+=======
+    if (rojo_activo && config.state_rojo) {
+        gpio_set_level(ROJO, ON);
+    } else {
+        gpio_set_level(ROJO, OFF);
+    }
+}
+
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 static void check_contadores_vacios(void)
 {
     if (contador_server == 0 && contador_cliente == 0)
     {
+<<<<<<< HEAD
         ESP_LOGI(TAG, ANSI_RED "Reinicio inmediato");
+=======
+        ESP_LOGI(TAG, "🚶 Peatonal vacío → reinicio inmediato");
+        xTimerStop(timer_cruce,    0);
+        xTimerStop(timer_reinicio, 0);   // ← cancela el timer, ya no hace falta
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
         flag_reinicio = true;            // ← misma lógica que si hubiera expirado
     }
 }
@@ -263,8 +306,12 @@ static void check_contadores_vacios(void)
 static void aplicar_nuevos_timers(void)
 {
     guardar_config();
+<<<<<<< HEAD
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "✅ Los temporizadores han sido actualizados y están en estado STOP.");
+=======
+    vTaskDelay(pdMS_TO_TICKS(500));
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     esp_restart();
 }
 
@@ -282,6 +329,7 @@ static void on_disconnect(const nimble_conn_info_t *conn, int reason)
 {
     ESP_LOGW(TAG, "✗ Desconectado  conn=%d  MAC=%s  reason=%d",
              conn->conn_handle, conn->addr_str, reason);
+<<<<<<< HEAD
 
     for (int i = 0; i < s_mine_count; i++) {
         if (s_mine_handles[i] == conn->conn_handle) {
@@ -291,6 +339,8 @@ static void on_disconnect(const nimble_conn_info_t *conn, int reason)
             break;
         }
     }
+=======
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 }
 
 static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t char_idx, const uint8_t *data, uint16_t len)
@@ -386,6 +436,7 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
     else if (svc_idx == SVC_ESP && char_idx == ESP_RX)
     {
 
+<<<<<<< HEAD
                 // ── Identificación ────────────────────────
         if (len == 4 && memcmp(data, "MINE", 4) == 0) {
             s_mine_handles[s_mine_count++] = conn->conn_handle;
@@ -401,6 +452,8 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
         // ── Solo procesar si es cliente propio ────
         if (!is_mine(conn->conn_handle)) return;
 
+=======
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
         if (len == 2 && memcmp(data, "IN", 2) == 0)
         {
             ESP_LOGI(TAG, ANSI_CYAN ">>> ENTRADA CLIENTE");
@@ -409,9 +462,14 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
             flag_entrada_cliente = true;  // ← solo flag, nada más
             return;
         }
+<<<<<<< HEAD
         if (len == 3 && memcmp(data, "OUT", 3) == 0)
         {
             ESP_LOGI(TAG, ANSI_CYAN ">>> SALIDA CLIENTE");
+=======
+        else if (len == 3 && memcmp(data, "OUT", 3) == 0)
+        {
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
             if (contador_server > 0) contador_server--;
             check_contadores_vacios();
             return;
@@ -483,7 +541,11 @@ static nimble_service_cfg_t services[] = {
 };
 
 static nimble_server_cfg_t server_cfg = {
+<<<<<<< HEAD
     .device_name          = "A11_LED_AC_SRV_01",
+=======
+    .device_name          = "A11_LEDAC_SRV_01",
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     .services             = services,
     .num_services         = 2,
     .max_connections      = 5,          // 1 + 4
@@ -572,16 +634,27 @@ static void output_gpio_init(gpio_num_t pin)
 static void timer_cruce_cb(TimerHandle_t xTimer)
 {
     paso_libre    = false;
+<<<<<<< HEAD
     ESP_LOGI(TAG, ANSI_YELLOW "⏱ Timer cruce expiró");
+=======
+    ESP_LOGI(TAG, "⏱ Timer cruce expiró");
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 }
 
 static void resetear_sistema(void)
 {
+<<<<<<< HEAD
     xTimerStop(timer_cruce,    0);
     xTimerStop(timer_reinicio, 0);
     paso_libre        = true;
     persona_detectada = false;
     hold_new_person   = false;
+=======
+    paso_libre        = true;
+    persona_detectada = false;
+    hold_new_person   = false;
+    hold_activo       = false;
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 
     contador_cliente  = 0;
     contador_server   = 0;
@@ -597,7 +670,13 @@ static void resetear_sistema(void)
 static void timer_reinicio_cb(TimerHandle_t xTimer)
 {
     flag_reinicio = true;
+<<<<<<< HEAD
     ESP_LOGI(TAG, ANSI_RED "⏱ Timer reinicio expiró");
+=======
+    xTimerStop(timer_cruce,    0);
+    xTimerStop(timer_reinicio, 0);
+    ESP_LOGI(TAG, "⏱ Timer reinicio expiró");
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 }
 
 // ============================================================
@@ -680,7 +759,10 @@ static void main_task(void* arg)
         else if (!paso_libre && hold_new_person) //SALIDA
         {
             hold_new_person = false;
+<<<<<<< HEAD
             ESP_LOGI(TAG, ANSI_MAGENTA ">>> SALIDA SERVER");
+=======
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 
             nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP, ESP_TX, "OUT");
 
@@ -761,6 +843,7 @@ static void sensor_task(void *arg)
 
         send_sensor_app();
 
+<<<<<<< HEAD
         /*ESP_LOGI(TAG, "📊 server=%d  cliente=%d  paso=%s  dist=%.2fm",
                 contador_server,
                 contador_cliente,
@@ -768,6 +851,9 @@ static void sensor_task(void *arg)
                 last_dist_m);*/
 
         //ESP_LOGI(TAG, "[%s] dist=%.3f m | det=%d", p->name, dist_m, (int)det);
+=======
+        ESP_LOGI(TAG, "[%s] dist=%.3f m | det=%d", p->name, dist_m, (int)det);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
         // ---- Periodo 110ms ----
         TickType_t elapsed = xTaskGetTickCount() - loop_start;
         if (elapsed < pdMS_TO_TICKS(110)) vTaskDelay(pdMS_TO_TICKS(110) - elapsed);
@@ -805,8 +891,11 @@ void app_main(void)
     output_gpio_init(VERDE);
     output_gpio_init(ROJO);
 
+<<<<<<< HEAD
     config_mutex = xSemaphoreCreateMutex();
 
+=======
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     ESP_LOGI(TAG, "Iniciando server BLE con 2 servicios...");
     ESP_ERROR_CHECK(nimble_server_init(&server_cfg));
 
@@ -820,6 +909,11 @@ void app_main(void)
     timer_cruce    = xTimerCreate("t_cruce",    pdMS_TO_TICKS(config.tiempo_cruce_ms),pdFALSE, NULL, timer_cruce_cb);
     timer_reinicio = xTimerCreate("t_reinicio", pdMS_TO_TICKS(config.tiempo_reinicio_ms),pdFALSE, NULL, timer_reinicio_cb);
 
+<<<<<<< HEAD
+=======
+    config_mutex = xSemaphoreCreateMutex();
+
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     xTaskCreate(sensor_task,    "sensor1_task",     6144,   &p1,        5, &sensor_task_handle);
     xTaskCreate(main_task,      "main_task",        4096,   NULL,       4, NULL);
     xTaskCreate(watchdog_task,  "wdg_task",         2048,   NULL,       3, NULL);

@@ -6,7 +6,11 @@ dependencies:
   nimble_peripheral_utils:
     dependencies: []
     source:
+<<<<<<< HEAD
       path: C:\ESP-IDF\552\Espressif\frameworks\esp-idf-v5.5.2\examples\bluetooth\nimble\common\nimble_peripheral_utils
+=======
+      path: C:\esp_552\Espressif\frameworks\esp-idf-v5.5.2\examples\bluetooth\nimble\common\nimble_peripheral_utils
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
       type: local
     version: '*'
 direct_dependencies:

@@ -6,7 +6,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+<<<<<<< HEAD
 #include "esp_rom_sys.h"F
+=======
+#include "esp_rom_sys.h"
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
 #include "esp_idf_version.h"
 
 static const char *TAG = "A11_SENSOR";
@@ -82,11 +86,17 @@ static bool sensor_do_read(a11_sensor_ctx_t *ctx, uint16_t *dist_mm)
         if (ctx->fail_count >= ctx->cfg.max_fail_count) {
             if (ctx->state != A11_SENSOR_STATE_DEAD) {
                 ctx->dead_since = xTaskGetTickCount();
+<<<<<<< HEAD
                 //ESP_LOGE(TAG, "Sensor UART%d sin respuesta — desconectado?",ctx->cfg.uart_num);
+=======
+                ESP_LOGE(TAG, "Sensor UART%d sin respuesta — desconectado?",
+                         ctx->cfg.uart_num);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
             }
             ctx->state = A11_SENSOR_STATE_DEAD;
         } else {
             ctx->state = A11_SENSOR_STATE_FAILING;
+<<<<<<< HEAD
             /*ESP_LOGW(TAG, "Sensor UART%d fallo %d/%d",
                      ctx->cfg.uart_num,
                      ctx->fail_count,
@@ -95,6 +105,16 @@ static bool sensor_do_read(a11_sensor_ctx_t *ctx, uint16_t *dist_mm)
     } else {
         if (ctx->state != A11_SENSOR_STATE_OK) {
             //ESP_LOGI(TAG, "Sensor UART%d recuperado", ctx->cfg.uart_num);
+=======
+            ESP_LOGW(TAG, "Sensor UART%d fallo %d/%d",
+                     ctx->cfg.uart_num,
+                     ctx->fail_count,
+                     ctx->cfg.max_fail_count);
+        }
+    } else {
+        if (ctx->state != A11_SENSOR_STATE_OK) {
+            ESP_LOGI(TAG, "Sensor UART%d recuperado", ctx->cfg.uart_num);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
         }
         ctx->fail_count = 0;
         ctx->state      = A11_SENSOR_STATE_OK;
@@ -150,10 +170,17 @@ esp_err_t a11_sensor_init(const a11_sensor_config_t *config,
                                   UART_PIN_NO_CHANGE));
 
     *handle = ctx;
+<<<<<<< HEAD
     /*ESP_LOGI(TAG, "Sensor UART%d listo (trigger=GPIO%d, rx=GPIO%d, "
                   "umbral=%.2fm, hold=%lums)",
              config->uart_num, config->trigger_pin, config->rx_pin,
              config->threshold_m, (unsigned long)config->hold_time_ms);*/
+=======
+    ESP_LOGI(TAG, "Sensor UART%d listo (trigger=GPIO%d, rx=GPIO%d, "
+                  "umbral=%.2fm, hold=%lums)",
+             config->uart_num, config->trigger_pin, config->rx_pin,
+             config->threshold_m, (unsigned long)config->hold_time_ms);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
     return ESP_OK;
 }
 
@@ -178,8 +205,13 @@ bool a11_sensor_read_m(a11_sensor_handle_t handle, float *dist_m)
 
     if (ok) {
         if (dist_mm < DIST_MM_MIN) {
+<<<<<<< HEAD
             /*ESP_LOGW(TAG, "Sensor UART%d eco invalido (%umm) — descartado",
                      ctx->cfg.uart_num, dist_mm);*/
+=======
+            ESP_LOGW(TAG, "Sensor UART%d eco invalido (%umm) — descartado",
+                     ctx->cfg.uart_num, dist_mm);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
             return false;
         }
         *dist_m = roundf((float)dist_mm / 10.0f) / 100.0f;
@@ -218,8 +250,13 @@ a11_detect_t a11_sensor_detect(a11_sensor_handle_t handle, float *dist_m)
 
     // ---- Eco inválido ----
     if (dist_mm < DIST_MM_MIN) {
+<<<<<<< HEAD
         /*ESP_LOGW(TAG, "Sensor UART%d eco invalido (%umm) — descartado",
                  ctx->cfg.uart_num, dist_mm);*/
+=======
+        ESP_LOGW(TAG, "Sensor UART%d eco invalido (%umm) — descartado",
+                 ctx->cfg.uart_num, dist_mm);
+>>>>>>> 546dfa61b5dc1d602dd85d86897da92bd335bd1d
         return A11_DETECT_NONE;
     }
 
