@@ -6,7 +6,6 @@
 #include "driver/gpio.h"
 #include "nimble_server.h"
 #include "nvs_flash.h"
-#include "a11_sensor.h"
 #include "cJSON.h"
 #include <math.h>
 #include "freertos/semphr.h"
@@ -22,27 +21,29 @@
 #define TAG             "SP_SERVER"
 #define NVS_NAMESPACE   "config"
 
-#define ALARMA        GPIO_NUM_5
-#define ROJO          GPIO_NUM_1
-#define VERDE         GPIO_NUM_22
+#define ALARMA              GPIO_NUM_5
+#define ROJO                GPIO_NUM_1
+#define VERDE               GPIO_NUM_22
 
-#define PIN_WATCHDOG    GPIO_NUM_19
-#define WDG_INTERVAL_MS 2000         // pulso cada 2s
+#define BOTON_PIN           GPIO_NUM_18
+#define PIN_WATCHDOG        GPIO_NUM_19
+#define WDG_INTERVAL_MS     2000         // pulso cada 2s
+#define BOTON_DEBOUNCE_MS   20
 
 // Servicio 0 — App móvil
-#define UUID_APP_SVC    "CC100010-0000-0000-0000-000000000000"
-#define UUID_APP_TX     "CC100010-0000-0000-0000-000000000001"  // notify → app
-#define UUID_APP_RX     "CC100010-0000-0000-0000-000000000002"  // write  ← app
+#define UUID_APP_SVC            "CC100010-0000-0000-0000-000000000000"
+#define UUID_APP_TX             "CC100010-0000-0000-0000-000000000001"  // notify → app
+#define UUID_APP_RX             "CC100010-0000-0000-0000-000000000002"  // write  ← app
 
 // Servicio 1 — ESP32 clientes
-#define UUID_ESP_SVC    "DD200020-0000-0000-0000-000000000000"
-#define UUID_ESP_TX     "DD200020-0000-0000-0000-000000000001"  // notify → clientes
-#define UUID_ESP_RX     "DD200020-0000-0000-0000-000000000002"  // write  ← clientes
+#define UUID_ESP_SVC            "DD200020-0000-0000-0000-000000000000"
+#define UUID_ESP_TX             "DD200020-0000-0000-0000-000000000001"  // notify → clientes
+#define UUID_ESP_RX             "DD200020-0000-0000-0000-000000000002"  // write  ← clientes
 
 // Servicio 2 — ESP32 CLIENTE DUAL
-#define UUID_ESP_SVC_DUAL    "EE200020-0000-0000-0000-000000000000"
-#define UUID_ESP_TX_DUAL     "EE200020-0000-0000-0000-000000000001"  // notify → clientes
-#define UUID_ESP_RX_DUAL     "EE200020-0000-0000-0000-000000000002"  // write  ← clientes
+#define UUID_ESP_SVC_DUAL       "EE200020-0000-0000-0000-000000000000"
+#define UUID_ESP_TX_DUAL        "EE200020-0000-0000-0000-000000000001"  // notify → clientes
+#define UUID_ESP_RX_DUAL        "EE200020-0000-0000-0000-000000000002"  // write  ← clientes
 
 // ── INDICES ───────────────────────────────
 #define SVC_APP         0
@@ -76,77 +77,40 @@ static bool is_mine(uint16_t conn_handle) {
 }
 
 
-static int contador_server = 0;
-static int contador_cliente = 0;
-
-static bool paso_libre    = true;
-
-static TimerHandle_t timer_cruce    = NULL;
-static TimerHandle_t timer_reinicio = NULL;
-
 static SemaphoreHandle_t config_mutex = NULL;
-static TaskHandle_t sensor_task_handle = NULL;
 
-static volatile bool sensor_conectado = false;
-static volatile bool persona_detectada = false;
-static volatile bool hold_activo = false;
+static volatile bool persona_dentro = false;   // true = ya entró, false = ya salió (o nunca entró)
+static TimerHandle_t timer_reinicio = NULL;
 static volatile bool hold_new_person = false;
-static volatile float last_dist_m = 0.0f;
-
 static volatile bool flag_reinicio = false;
-
 static volatile bool alarma_activa = false;
 static volatile bool verde_activo  = true;
 static volatile bool rojo_activo  = false;
-static volatile bool sensor_cambio = false;
-static volatile bool flag_entrada_cliente = false;
 
 static volatile bool timers_cambio = false;
 
 static volatile bool flag_apply_config     = false;
 static volatile bool flag_send_config_esp  = false;
-
-void config_sensor(void);
-void reiniciar_sensor(void);
-
-// ===================== PARÁMETROS TASK SENSOR A11 =====================
-typedef struct {
-    a11_sensor_handle_t sensor;
-    gpio_num_t          output_pin;
-    const char         *name;
-    uint32_t            start_delay_ms;
-} sensor_task_params_t;
-
-static sensor_task_params_t p1;
+static volatile bool flag_sync_local = false;  // sincroniza salidas físicas, NO reenvía BLE
 
 // =====================================================================
 //                          CONFIGURACION DE NVS
 // =====================================================================
 typedef struct {
 
-    int tiempo_cruce_ms;
     int tiempo_reinicio_ms;
-
     bool state_alarma;
     bool state_rojo;
     bool state_verde;
-
-    float threshold_m;
-    int hold_time_ms;
 
 } Config;
 
 // Valores por defecto
 static Config config = {
-
-    .tiempo_cruce_ms        = 1000,
-    .tiempo_reinicio_ms     = 20000,
+    .tiempo_reinicio_ms     = 2000,
     .state_alarma           = true,
     .state_rojo             = true,
     .state_verde            = true,
-
-    .threshold_m            = 0.5f,
-    .hold_time_ms           = 1500,
 };
 
 static void guardar_config(void) {
@@ -175,13 +139,10 @@ static void cargar_config(void) {
 
             ESP_LOGI(TAG, "===============================");
             ESP_LOGI(TAG, "✅ Configuración cargada desde NVS");
-            ESP_LOGI(TAG, "   Tiempo cruce: %d ms", config.tiempo_cruce_ms);
             ESP_LOGI(TAG, "   Tiempo reinicio: %d ms", config.tiempo_reinicio_ms);
             ESP_LOGI(TAG, "   Estado alarma: %s", config.state_alarma ? "ON" : "OFF");
             ESP_LOGI(TAG, "   Estado rojo: %s", config.state_rojo ? "ON" : "OFF");
             ESP_LOGI(TAG, "   Estado verde: %s", config.state_verde ? "ON" : "OFF");
-            ESP_LOGI(TAG, "   Umbral (m): %.2f", config.threshold_m);
-            ESP_LOGI(TAG, "   Tiempo de espera: %d ms", config.hold_time_ms);
             ESP_LOGI(TAG, "===============================");
 
         } else {
@@ -196,15 +157,12 @@ static void send_config_esp(uint16_t conn_handle)
 {
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "{\"tc\":%d,\"tr\":%d,"
-        "\"sa\":%d,\"sr\":%d,\"sv\":%d,\"th\":%.2f,\"hm\":%d}", 
-        config.tiempo_cruce_ms, 
+        "{\"tr\":%d,"
+        "\"sa\":%d,\"sr\":%d,\"sv\":%d}", 
         config.tiempo_reinicio_ms,
         config.state_alarma    ? 1 : 0,
         config.state_rojo    ? 1 : 0,
-        config.state_verde    ? 1 : 0,
-        config.threshold_m,
-        config.hold_time_ms
+        config.state_verde    ? 1 : 0
     );
     nimble_server_send_str(conn_handle, SVC_ESP, ESP_TX, buf);
     ESP_LOGI(TAG, "CONFIGURACION ENVIADA A ESP32 CLIENTE");
@@ -214,30 +172,15 @@ static void send_config_app(uint16_t conn_handle)
 {
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "{\"tc\":%d,\"tr\":%d,"
-        "\"sa\":%d,\"sr\":%d,\"sv\":%d,\"th\":%.2f,\"hm\":%d}", 
-        config.tiempo_cruce_ms, 
+        "{\"tr\":%d,"
+        "\"sa\":%d,\"sr\":%d,\"sv\":%d}", 
         config.tiempo_reinicio_ms,
         config.state_alarma    ? 1 : 0,
         config.state_rojo    ? 1 : 0,
-        config.state_verde    ? 1 : 0,
-        config.threshold_m,
-        config.hold_time_ms
+        config.state_verde    ? 1 : 0
     );
     nimble_server_send_str(conn_handle, SVC_APP, APP_TX, buf);
     ESP_LOGI(TAG, "CONFIGURACION ENVIADA A APP");
-}
-
-static void send_sensor_app(void)
-{
-    char buf[128];
-    snprintf(buf, sizeof(buf),
-        "{\"type\":\"sen\",\"dist\":%.2f,\"det\":%d,\"conn\":%d}",
-        last_dist_m,
-        persona_detectada ? 1 : 0,
-        sensor_conectado  ? 1 : 0
-    );
-    nimble_server_send_str(NIMBLE_CONN_ALL, SVC_APP, APP_TX, buf);
 }
 
 static inline void set_alarma(void)
@@ -261,15 +204,6 @@ static inline void set_rojo(void)
     ESP_LOGI(TAG, "🔴 ROJO   → %s", estado ? "ON" : "OFF");
 }
 
-static void check_contadores_vacios(void)
-{
-    if (contador_server == 0 && contador_cliente == 0)
-    {
-        ESP_LOGI(TAG, ANSI_RED "Reinicio inmediato");
-        flag_reinicio = true;            // ← misma lógica que si hubiera expirado
-    }
-}
-
 static void aplicar_nuevos_timers(void)
 {
     guardar_config();
@@ -278,6 +212,54 @@ static void aplicar_nuevos_timers(void)
     esp_restart();
 }
 
+// =====================================================================
+//                      CONFIGURACION DE PINES COMO SALIDA
+// =====================================================================
+static void output_gpio_init(gpio_num_t pin)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << pin),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    ESP_ERROR_CHECK(gpio_set_level(pin, OFF));
+}
+
+static void boton_init(void)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << BOTON_PIN),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    ESP_LOGI(TAG, "✅ Botón inicializado en GPIO%d", BOTON_PIN);
+}
+
+static void aplicar_estado_local(void)
+{
+    xTimerStop(timer_reinicio, 0);
+
+    if (persona_dentro) {
+        xTimerStart(timer_reinicio, 0);
+        rojo_activo   = true;
+        alarma_activa = true;
+        verde_activo  = false;
+    } else {
+        rojo_activo   = false;
+        alarma_activa = false;
+        verde_activo  = true;
+    }
+
+    set_alarma();
+    set_rojo();
+    set_verde();
+}
 // =====================================================================
 //                          CONFIGURACION DE BLE
 // =====================================================================
@@ -336,31 +318,10 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
 
         if (xSemaphoreTake(config_mutex, pdMS_TO_TICKS(100)) == pdTRUE){
 
-            cJSON* tc = cJSON_GetObjectItem(root, "tc");
-            if (cJSON_IsNumber(tc) && tc->valueint != config.tiempo_cruce_ms) {
-                config.tiempo_cruce_ms = tc->valueint;
-                timers_cambio = true;
-            }
-
             cJSON* tr = cJSON_GetObjectItem(root, "tr");
             if (cJSON_IsNumber(tr) && tr->valueint != config.tiempo_reinicio_ms) {
                 config.tiempo_reinicio_ms = tr->valueint;
                 timers_cambio = true;
-            }
-
-            cJSON* hm = cJSON_GetObjectItem(root, "hm");
-            if (cJSON_IsNumber(hm) && hm->valueint != config.hold_time_ms) {
-                config.hold_time_ms = hm->valueint;
-                sensor_cambio = true;
-            }
-
-            cJSON* th = cJSON_GetObjectItem(root, "th");
-            if (cJSON_IsNumber(th)) {
-                float nuevo = (float)th->valuedouble;
-                if (fabsf(nuevo - config.threshold_m) > 0.001f) {
-                    config.threshold_m = nuevo;
-                    sensor_cambio = true;
-                }
             }
 
             cJSON* sa = cJSON_GetObjectItem(root, "sa");
@@ -415,16 +376,16 @@ static void on_receive(const nimble_conn_info_t *conn, uint8_t svc_idx, uint8_t 
         {
             ESP_LOGI(TAG, ANSI_CYAN ">>> ENTRADA CLIENTE");
             nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP_DUAL, ESP_TX_DUAL , "IN");
-            contador_cliente++;
-            flag_entrada_cliente = true;  // ← solo flag, nada más
+            persona_dentro   = true;
+            flag_sync_local  = true;   // ← solo sincroniza, no reenvía
             return;
         }
         if (len == 3 && memcmp(data, "OUT", 3) == 0)
         {
-            ESP_LOGI(TAG, ANSI_CYAN ">>> SALIDA CLIENTE");
+            ESP_LOGI(TAG, ANSI_CYAN ">>>>>>>>> SALIDA CLIENTE");
             nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP_DUAL, ESP_TX_DUAL , "OUT");
-            if (contador_server > 0) contador_server--;
-            check_contadores_vacios();
+            persona_dentro   = false;
+            flag_sync_local  = true;   // ← solo sincroniza, no reenvía
             return;
         }
     }
@@ -526,98 +487,14 @@ static nimble_server_cfg_t server_cfg = {
     .adv_interval_max_ms  = 200,
 };
 
-// =====================================================================
-//                      CONFIGURACION DE SENSOR DE DISTANCIA
-// =====================================================================
-void config_sensor(void)
-{
-    a11_sensor_config_t cfg1 = A11_SENSOR_DEFAULT_CONFIG();
-    cfg1.uart_num          = UART_NUM_1;
-    cfg1.rx_pin            = GPIO_NUM_20;
-    cfg1.trigger_pin       = GPIO_NUM_18;
-    cfg1.threshold_m       = config.threshold_m;
-    cfg1.hold_time_ms      = config.hold_time_ms;
-    cfg1.retry_interval_ms = 5000;
-
-    a11_sensor_handle_t sensor1 = NULL;
-    ESP_ERROR_CHECK(a11_sensor_init(&cfg1, &sensor1));
-
-    p1.sensor         = sensor1;
-    p1.output_pin     = GPIO_NUM_NC;
-    p1.name           = "S1";
-    p1.start_delay_ms = 50;
-}
-
-void reiniciar_sensor(void)
-{
-    ESP_LOGI(TAG, "Reiniciando sensor...");
-
-    // 1. Pausar sensor_task antes de tocar nada
-    if (sensor_task_handle != NULL)
-        vTaskSuspend(sensor_task_handle);
-
-    // 2. Esperar que termine su ciclo actual
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    // 3. Ahora sí es seguro destruir
-    if (p1.sensor != NULL) {
-        a11_sensor_deinit(p1.sensor);
-        p1.sensor = NULL;
-    }
-
-    // 4. Recrear con nueva config
-    config_sensor();
-
-    // 5. Reanudar
-    if (sensor_task_handle != NULL)
-        vTaskResume(sensor_task_handle);
-
-    ESP_LOGI(TAG, "✅ Sensor reiniciado correctamente");
-}
-
-// =====================================================================
-//                      CONFIGURACION DE PINES COMO SALIDA
-// =====================================================================
-static void output_gpio_init(gpio_num_t pin)
-{
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << pin),
-        .mode         = GPIO_MODE_OUTPUT,
-        .pull_up_en   = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&io_conf));
-    ESP_ERROR_CHECK(gpio_set_level(pin, OFF));
-}
-
-// ============================================================
-// TIMERS DE CRUVE Y REINCIO
-// ============================================================
-
-static void timer_cruce_cb(TimerHandle_t xTimer)
-{
-    paso_libre    = false;
-    ESP_LOGI(TAG, ANSI_YELLOW "⏱ Timer cruce expiró");
-}
-
 static void resetear_sistema(void)
 {
-    xTimerStop(timer_cruce,    0);
     xTimerStop(timer_reinicio, 0);
-    paso_libre        = true;
-    persona_detectada = false;
-    hold_new_person   = false;
-
-    contador_cliente  = 0;
-    contador_server   = 0;
-
-    alarma_activa = false;
-    verde_activo = true;
-    rojo_activo = false;
-    set_alarma();
-    set_verde();
-    set_rojo();
+    hold_new_person = false;   // ← cancela cualquier evento de botón pendiente
+    flag_sync_local = false;   // ← cancela cualquier sync BLE pendiente
+    ESP_LOGI(TAG, ANSI_RED ">>> SALIDA FORZADA (timeout)");
+    persona_dentro = false;
+    aplicar_estado_local();
 }
 
 static void timer_reinicio_cb(TimerHandle_t xTimer)
@@ -652,153 +529,77 @@ static void main_task(void* arg)
             aplicar_nuevos_timers();
         }
 
-        //SI SE CAMBIO UNA CONFIGURACION DEL SENSOR SE REINICIA
-        if (sensor_cambio) {
-            sensor_cambio = false;
-            reiniciar_sensor();
-        }
-
         // SI SE REINICIO O LOS CONTADORES SE PUSIERON EN 0 
         if (flag_reinicio) {
             flag_reinicio = false;
             resetear_sistema();
         }
 
-        if (flag_entrada_cliente) {
-            flag_entrada_cliente = false;
-            xTimerStop(timer_cruce, 0);
-            xTimerStop(timer_reinicio, 0);
-            xTimerStart(timer_cruce, 0);
-            xTimerStart(timer_reinicio, 0);
-            alarma_activa = true;
-            rojo_activo   = true;
-            verde_activo  = false;
-            set_alarma(); set_rojo(); set_verde();
-        }
-        // ── Solo actuar si el cruce está disponible ───────────
-        //ENTRADA
-        if (paso_libre && hold_new_person)
-        {
-            ESP_LOGI(TAG, ANSI_MAGENTA ">>> ENTRADA SERVER");
-
-            hold_new_person = false;
-
-            xTimerStop(timer_cruce,    0);
-            xTimerStop(timer_reinicio, 0);
-            xTimerStart(timer_cruce,    0);
-            xTimerStart(timer_reinicio, 0);
-
-            contador_server++;
-            
-            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP, ESP_TX, "IN");
-            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP_DUAL, ESP_TX_DUAL , "IN");
-
-            rojo_activo = true;
-            alarma_activa = true;
-            verde_activo = false;
-            set_alarma();
-            set_rojo();
-            set_verde();
-            vTaskDelay(pdMS_TO_TICKS(50));
-
-        }
-
-        //SALIDA
-        else if (!paso_libre && hold_new_person) //SALIDA
+        if (hold_new_person)
         {
             hold_new_person = false;
-            ESP_LOGI(TAG, ANSI_MAGENTA ">>> SALIDA SERVER");
+            ESP_LOGI(TAG, ANSI_MAGENTA "%s SERVER", persona_dentro ? ">>> ENTRADA" : ">>>>>>>>> SALIDA");
 
-            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP, ESP_TX, "OUT");
-            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP_DUAL, ESP_TX_DUAL , "OUT");
+            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP, ESP_TX, persona_dentro ? "IN" : "OUT");
+            nimble_server_send_str(NIMBLE_CONN_ALL, SVC_ESP_DUAL, ESP_TX_DUAL, persona_dentro ? "IN" : "OUT");
 
-            if(contador_cliente > 0){
-                contador_cliente --;
-            }
-
-            check_contadores_vacios();
-
+            aplicar_estado_local();
         }
 
-        /*ESP_LOGI(TAG, "📊 server=%d  cliente=%d  paso=%s  dist=%.2fm",
-                contador_server,
-                contador_cliente,
-                paso_libre ? "LIBRE" : "OCUPADO",
-                last_dist_m);*/
+        if (flag_sync_local)
+        {
+            flag_sync_local = false;
+            aplicar_estado_local();
+        }
 
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
-
-// ===================== TASK SENSOR =====================
-static void sensor_task(void *arg)
+static void boton_task(void *arg)
 {
-    sensor_task_params_t *p = (sensor_task_params_t *)arg;
-
-    if (p->start_delay_ms > 0) {
-        vTaskDelay(pdMS_TO_TICKS(p->start_delay_ms));
-    }
+    bool estado_estable    = true;   // true = suelto (pull-up reposo = HIGH)
+    bool ultima_lectura     = true;
+    TickType_t t_ultimo_cambio = xTaskGetTickCount();
 
     while (1) {
+        bool nivel_raw = gpio_get_level(BOTON_PIN);   // 1=suelto, 0=presionado
 
-        TickType_t loop_start = xTaskGetTickCount();
-
-        // ---- Retry automático ----
-        if (a11_sensor_should_retry(p->sensor)) {
-            //ESP_LOGW(TAG, "[%s] Reintentando conexión...", p->name);
-            a11_sensor_reset(p->sensor);
+        // ---- Detecta cambio crudo y reinicia el conteo de antirrebote ----
+        if (nivel_raw != ultima_lectura) {
+            t_ultimo_cambio = xTaskGetTickCount();
+            ultima_lectura  = nivel_raw;
         }
 
-        // ---- Sensor Desconectado ----
-        if (a11_sensor_get_state(p->sensor) == A11_SENSOR_STATE_DEAD) 
+        // ---- Si ya pasó el tiempo de antirrebote, el nivel es estable ----
+        if ((xTaskGetTickCount() - t_ultimo_cambio) > pdMS_TO_TICKS(BOTON_DEBOUNCE_MS))
         {
-            sensor_conectado = false;
-            persona_detectada = false;
-            hold_new_person = false;
-
-            send_sensor_app();
-
-            TickType_t e = xTaskGetTickCount() - loop_start;
-            if (e < pdMS_TO_TICKS(110)) vTaskDelay(pdMS_TO_TICKS(110) - e);
-            continue;
-        }
-        else {
-            sensor_conectado = true;
-        }
-        
-        // ---- Detección ----
-        float        dist_m = 0.0f;
-        a11_detect_t det    = a11_sensor_detect(p->sensor, &dist_m);
-        if (dist_m > 0.0f) last_dist_m = dist_m;
-
-        if (det == A11_DETECT_NEAR){
-
-            persona_detectada = true;
-            if (!hold_activo)           // ← solo en el PRIMER flanco
+            if (nivel_raw != estado_estable)
             {
-                hold_activo     = true;
-                hold_new_person = true; // ← avisa UNA sola vez a main_task
+                estado_estable = nivel_raw;
+                // ---- Flanco de bajada confirmado (HIGH→LOW) = presión real ----
+                if (estado_estable == false)
+                {
+                    hold_new_person = true;
+                    if (!persona_dentro)
+                    {
+                        // ── ENTRADA ──
+                        persona_dentro = true;
+                        //ESP_LOGI(TAG, ANSI_GREEN ">>> ENTRADA (botón)");
+                        // próximamente: hold_new_person = true; (para enganchar al main_task)
+                    }
+                    else
+                    {
+                        // ── SALIDA ──
+                        persona_dentro = false;
+                        //ESP_LOGI(TAG, ANSI_RED ">>> SALIDA (botón)");
+                        // próximamente: hold_new_person = true;
+                    }
+                }
             }
         }
-        
-        else{
-            persona_detectada = false;
-            hold_activo       = false;
-        }
 
-        send_sensor_app();
-
-        /*ESP_LOGI(TAG, "📊 server=%d  cliente=%d  paso=%s  dist=%.2fm",
-                contador_server,
-                contador_cliente,
-                paso_libre ? "LIBRE" : "OCUPADO",
-                last_dist_m);*/
-
-        //ESP_LOGI(TAG, "[%s] dist=%.3f m | det=%d", p->name, dist_m, (int)det);
-        // ---- Periodo 110ms ----
-        TickType_t elapsed = xTaskGetTickCount() - loop_start;
-        if (elapsed < pdMS_TO_TICKS(110)) vTaskDelay(pdMS_TO_TICKS(110) - elapsed);
+        vTaskDelay(pdMS_TO_TICKS(10));   // polling rápido, antirrebote filtra el ruido
     }
 }
 
@@ -828,27 +629,33 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    /*nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_all(h);
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "🗑️ NVS namespace '%s' borrado", NVS_NAMESPACE);
+    }*/
+
     cargar_config();
-    output_gpio_init(ALARMA);
-    output_gpio_init(VERDE);
-    output_gpio_init(ROJO);
 
     config_mutex = xSemaphoreCreateMutex();
 
     ESP_LOGI(TAG, "Iniciando server BLE con 2 servicios...");
     ESP_ERROR_CHECK(nimble_server_init(&server_cfg));
 
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    config_sensor();
-
+    output_gpio_init(ALARMA);
+    output_gpio_init(VERDE);
+    output_gpio_init(ROJO);    
+    boton_init();
+    vTaskDelay(pdMS_TO_TICKS(500));
     set_alarma();
-    set_verde();   // ← enciende verde porque verde_activo = true
+    set_verde();
     set_rojo();
 
-    timer_cruce    = xTimerCreate("t_cruce",    pdMS_TO_TICKS(config.tiempo_cruce_ms),pdFALSE, NULL, timer_cruce_cb);
-    timer_reinicio = xTimerCreate("t_reinicio", pdMS_TO_TICKS(config.tiempo_reinicio_ms),pdFALSE, NULL, timer_reinicio_cb);
+    timer_reinicio =xTimerCreate("t_reinicio", pdMS_TO_TICKS(config.tiempo_reinicio_ms),pdFALSE, NULL, timer_reinicio_cb);
 
-    xTaskCreate(sensor_task,    "sensor1_task",     6144,   &p1,        5, &sensor_task_handle);
     xTaskCreate(main_task,      "main_task",        4096,   NULL,       4, NULL);
     xTaskCreate(watchdog_task,  "wdg_task",         2048,   NULL,       3, NULL);
+    xTaskCreate(boton_task,     "boton_task",       2048,   NULL,       5, NULL);
 }
